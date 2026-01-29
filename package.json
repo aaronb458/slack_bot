@@ -1,0 +1,20 @@
+{
+  "name": "slack_bot",
+  "version": "1.0.0",
+  "description": "Slack bot that tracks messages, threads, tasks, and team activity across all channels",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@slack/bolt": "^4.6.0",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.2.3",
+    "node-cron": "^4.2.1"
+  }
+}

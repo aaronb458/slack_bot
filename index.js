@@ -1,0 +1,85 @@
+require('dotenv').config();
+const { App, LogLevel } = require('@slack/bolt');
+const { registerEvents } = require('./src/events');
+const { registerCommands } = require('./src/commands');
+const { startScheduler } = require('./src/scheduler');
+const { joinAndBackfillAll, syncUsers } = require('./src/backfill');
+const { log } = require('./src/utils');
+
+// --- Validate required environment variables ---
+const REQUIRED_ENV = ['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET', 'SLACK_APP_TOKEN', 'ANTHROPIC_API_KEY'];
+const missing = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missing.length > 0) {
+  console.error(`\n  Missing required environment variables:\n    ${missing.join('\n    ')}\n`);
+  console.error('  Copy .env.example to .env and fill in your values.\n');
+  process.exit(1);
+}
+
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  socketMode: true,
+  appToken: process.env.SLACK_APP_TOKEN,
+  logLevel: LogLevel.WARN, // reduce Bolt noise — our logger handles the rest
+});
+
+// Register all event listeners
+registerEvents(app);
+
+// Register all slash commands
+registerCommands(app);
+
+// --- Global error handler for Bolt ---
+app.error(async (error) => {
+  log.error('bolt', `Unhandled error: ${error.message}`);
+  if (error.original) {
+    log.error('bolt', `Original: ${error.original.message || error.original}`);
+  }
+});
+
+// --- Process-level crash handlers ---
+process.on('unhandledRejection', (reason) => {
+  log.error('process', `Unhandled promise rejection: ${reason?.message || reason}`);
+});
+
+process.on('uncaughtException', (error) => {
+  log.error('process', `Uncaught exception: ${error.message}`);
+  log.error('process', error.stack || '');
+  // Give the logger a moment to flush, then exit
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('SIGINT', () => {
+  log.info('process', 'Received SIGINT, shutting down...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  log.info('process', 'Received SIGTERM, shutting down...');
+  process.exit(0);
+});
+
+// --- Start ---
+(async () => {
+  try {
+    await app.start();
+    log.info('startup', '===========================================');
+    log.info('startup', '  Slack Project Tracker Bot is running!');
+    log.info('startup', '===========================================');
+
+    // Sync users first so we have names for the backfill logs
+    await syncUsers(app.client);
+
+    // Auto-join public channels and backfill history
+    await joinAndBackfillAll(app.client);
+
+    // Start scheduled reports
+    startScheduler(app);
+
+    log.info('startup', 'Bot is fully operational.');
+  } catch (error) {
+    log.error('startup', `Failed to start: ${error.message}`);
+    log.error('startup', error.stack || '');
+    process.exit(1);
+  }
+})();
