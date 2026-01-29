@@ -243,7 +243,7 @@ If multiple people need access, get each person's member ID.
 Aaron will give you access to the GitHub repo. Once you have access:
 
 ```bash
-git clone https://github.com/REPO_URL_HERE
+git clone https://github.com/aaronb458/slack_bot.git
 cd slack_bot
 ```
 
