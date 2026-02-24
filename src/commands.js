@@ -1,6 +1,8 @@
 const db = require('./database');
 const { formatTaskList, formatProjectReport, formatGlobalSummary } = require('./tasks');
 const { getUptime } = require('./utils');
+const { analyzeChannel } = require('./intelligence');
+const { runMorningScan } = require('./morning-scan');
 
 /**
  * Register all slash commands with the Slack app.
@@ -246,6 +248,118 @@ function registerCommands(app) {
     }
 
     await respond({ response_type: 'ephemeral', text: sections.join('\n') });
+  });
+
+  // /scan — run morning scan on demand
+  app.command('/scan', async ({ command, ack, respond }) => {
+    await ack();
+
+    const AUTHORIZED_USERS = (process.env.AUTHORIZED_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!AUTHORIZED_USERS.includes(command.user_id)) {
+      await respond({ response_type: 'ephemeral', text: 'Only authorized users can run the scan.' });
+      return;
+    }
+
+    await respond({
+      response_type: 'ephemeral',
+      text: ':hourglass: Running morning scan... This will be DM\'d to you when ready.',
+    });
+
+    try {
+      const result = await runMorningScan(app);
+      if (!result.sent) {
+        await respond({ response_type: 'ephemeral', text: ':warning: Scan completed but no results were sent. Check AUTHORIZED_USERS.' });
+      }
+    } catch (e) {
+      await respond({ response_type: 'ephemeral', text: `:x: Scan failed: ${e.message}` });
+    }
+  });
+
+  // /analyze — analyze the current channel
+  app.command('/analyze', async ({ command, ack, respond }) => {
+    await ack();
+
+    try {
+      const analysis = analyzeChannel(command.channel_id);
+      const ch = db.getChannel(command.channel_id);
+
+      const lines = [
+        `:mag: *Channel Analysis: #${ch?.name || command.channel_id}*`,
+        '',
+        `*Mood:* ${analysis.sentiment.mood} (score: ${analysis.sentiment.score})`,
+        `*Activity:* ${analysis.activity.tier} (${analysis.activity.messages_per_week} msgs/week)`,
+        `*Needs Response:* ${analysis.needs_response.needs_response ? 'Yes' : 'No'}`,
+      ];
+
+      if (analysis.needs_response.needs_response) {
+        lines.push(`_${analysis.needs_response.reason}_`);
+        lines.push(`*Unanswered:* ${analysis.needs_response.unanswered_count}`);
+      }
+
+      if (analysis.topics.primary_topic) {
+        lines.push(`*Topics:* ${analysis.topics.topics.join(', ')}`);
+      }
+
+      lines.push('');
+      lines.push(`*Priority Score:* ${analysis.priority_score}/100`);
+      lines.push(`_${analysis.priority_reason}_`);
+
+      if (analysis.cancellation.cancelled) {
+        lines.push('');
+        lines.push(`:warning: *Cancellation detected:* ${analysis.cancellation.detected_by}`);
+      }
+
+      await respond({ response_type: 'ephemeral', text: lines.join('\n') });
+    } catch (e) {
+      await respond({ response_type: 'ephemeral', text: `:x: Analysis failed: ${e.message}` });
+    }
+  });
+
+  // /team-ids — list known users with their Slack IDs (for configuring TEAM_USER_IDS)
+  app.command('/team-ids', async ({ command, ack, respond }) => {
+    await ack();
+
+    const AUTHORIZED_USERS = (process.env.AUTHORIZED_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!AUTHORIZED_USERS.includes(command.user_id)) {
+      await respond({ response_type: 'ephemeral', text: 'Only authorized users can view team IDs.' });
+      return;
+    }
+
+    const users = db.getDb().prepare(`
+      SELECT id, display_name, real_name, is_bot
+      FROM users
+      WHERE is_bot = 0 OR is_bot IS NULL
+      ORDER BY real_name
+    `).all();
+
+    if (users.length === 0) {
+      await respond({ response_type: 'ephemeral', text: 'No users found. Run the bot first to sync users.' });
+      return;
+    }
+
+    const teamIds = (process.env.TEAM_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const teamSet = new Set(teamIds);
+
+    const lines = [
+      ':busts_in_silhouette: *Known Users — Copy IDs for TEAM_USER_IDS*',
+      '',
+    ];
+
+    for (const u of users) {
+      const name = u.real_name || u.display_name || 'Unknown';
+      const isTeam = teamSet.has(u.id) ? ' :white_check_mark:' : '';
+      lines.push(`\`${u.id}\` — ${name}${isTeam}`);
+    }
+
+    lines.push('');
+    lines.push('_Copy the IDs of your team members and set them as TEAM_USER_IDS in your .env (comma-separated)._');
+    if (teamIds.length > 0) {
+      lines.push(`_Current TEAM_USER_IDS: ${teamIds.join(', ')}_`);
+    } else {
+      lines.push('_Warning: TEAM_USER_IDS is not set — falling back to AUTHORIZED_USERS._');
+    }
+
+    await respond({ response_type: 'ephemeral', text: lines.join('\n') });
   });
 }
 
