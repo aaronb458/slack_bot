@@ -194,6 +194,21 @@ That's 9 events total.
 - Request URL: `https://localhost/slack/events`
 - Short Description: `Check if bot is running`
 
+**Command 7:**
+- Command: `/scan`
+- Request URL: `https://localhost/slack/events`
+- Short Description: `Run morning scan on demand`
+
+**Command 8:**
+- Command: `/analyze`
+- Request URL: `https://localhost/slack/events`
+- Short Description: `Analyze current channel health`
+
+**Command 9:**
+- Command: `/team-ids`
+- Request URL: `https://localhost/slack/events`
+- Short Description: `List user IDs for team config`
+
 The Request URL doesn't matter because Socket Mode bypasses it. But Slack requires something there, so just use `https://localhost/slack/events`.
 
 ---
