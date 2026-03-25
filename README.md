@@ -4,6 +4,8 @@ A silent Slack bot that sits in every channel, tracks all messages, threads, and
 
 **The team and clients never see it do anything.** It just watches. You DM it to get insights.
 
+**Cost:** ~$10-15/month total (Railway hosting + AI usage). Slack is free. Setup takes ~20 minutes.
+
 ---
 
 ## What This Bot Does
@@ -68,7 +70,14 @@ It remembers context — you can ask follow-up questions.
 
 **This guide walks you through everything, step by step. If you can follow a recipe, you can do this.**
 
-You need 4 things:
+### Before You Start — Make Sure You Have:
+
+- **Admin access** to the Slack workspace where you want the bot (you need to be able to install apps). If you're not sure, ask whoever manages your Slack.
+- **A web browser** and about 20-30 minutes of uninterrupted time.
+- **A place to save tokens** as you go — a notes app, a text file, whatever. You'll collect 4-5 tokens/keys across the steps below and enter them all in Step 10.
+
+### What You're Going to Set Up:
+
 1. A Slack App (you create it in Slack's website — ~10 minutes)
 2. An AI API key (the brain — ~2 minutes)
 3. This code (from GitHub — ~1 minute)
@@ -168,6 +177,8 @@ That's 9 events total.
 ---
 
 ## STEP 6: Create Slash Commands
+
+> **These are optional.** The bot works perfectly fine through DMs without slash commands. But if you want quick shortcuts like `/scan` or `/tasks`, add them now. You can always come back and add these later.
 
 1. In the left sidebar, click **"Slash Commands"**
 2. For each command below, click **"Create New Command"**, fill in the fields, and save:
@@ -290,9 +301,12 @@ If multiple people need access, get each person's member ID.
 
 ### 10a. Get the Code on GitHub
 
-1. If you haven't already, create a **GitHub** account at **https://github.com/**
-2. Go to this repo's page on GitHub
-3. Click the green **"Fork"** button (this copies it to your account)
+1. If you haven't already, create a **GitHub** account at **https://github.com/** (it's free)
+2. Come back to this repo page (you're probably reading this on it right now)
+3. Near the top-right of the page, click the **"Fork"** button
+4. Click **"Create fork"**
+
+> **What "Fork" means:** It makes your own copy of this code under your GitHub account. You need your own copy so Railway can deploy it for you. The original stays untouched.
 
 ### 10b. Create a Railway Project
 
