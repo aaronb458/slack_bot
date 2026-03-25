@@ -285,6 +285,15 @@ cd slack_bot
 | `CLAUDE_MODEL` | `claude-sonnet-4-5-20250929` |
 | `AUTHORIZED_USERS` | `U01ABC123XY` (from Step 9, comma-separated if multiple) |
 
+**Optional variables** (add these if you want to customize behavior):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TEAM_USER_IDS` | (falls back to AUTHORIZED_USERS) | Comma-separated Slack user IDs of your team. Used to tell apart "team" vs "client" messages. |
+| `EXCLUDE_CHANNELS` | `general,random` | Channels to skip during scans. |
+| `DRAFTS_ENABLED` | `true` | Set to `false` to disable draft message suggestions. You still get the priority queue and analysis — just no suggested messages. |
+| `DRAFT_STYLE` | `casual` | Tone of draft messages. Options: `casual`, `professional`, `friendly` (see below). |
+
 ### 10d. Add a Persistent Volume (CRITICAL)
 
 This is where the bot stores its database. Without this, data resets on every deploy.
@@ -357,6 +366,54 @@ The bot auto-joins all public channels on its own. For private channels:
 | Data gone after redeploy | Volume not mounted — redo Step 10d |
 | Bot doesn't join channels | Missing `channels:join` scope — add it and reinstall |
 | No scheduled reports | `AUTHORIZED_USERS` not set — add your Slack user ID |
+
+---
+
+## Draft Message Styles
+
+The bot generates suggested draft messages when channels need a response. You can customize the tone or turn it off entirely.
+
+### Choosing a Style
+
+Set `DRAFT_STYLE` in your environment variables:
+
+| Style | Greeting | Sign-off | Best for |
+|---|---|---|---|
+| `casual` (default) | "Hey John" | "Happy Monday!" / "Have an awesome weekend!" | Friendly, personal relationships with clients |
+| `professional` | "Hi John" | "Best regards." / "Thank you." | Corporate clients, formal communication |
+| `friendly` | "Hi John!" | "Have a great day!" / "Talk soon!" | Warm but less personal than casual |
+
+**Example — same situation, three styles:**
+
+> **casual:** Hey John, I hear you on this and I totally understand the frustration with your website. I'm personally making sure this gets resolved. Happy Wednesday!
+>
+> **professional:** Hi John, I understand your frustration with your website and I take this seriously. I'm personally overseeing the resolution and will follow up with you directly today. Best regards.
+>
+> **friendly:** Hi John, I completely understand your frustration with your website. I'm making this a priority and will personally follow up with you today. Have a great day!
+
+### Turning Drafts Off
+
+If you don't want suggested messages at all (just the priority queue and channel analysis), set:
+
+```
+DRAFTS_ENABLED=false
+```
+
+You still get everything else — priority scores, mood detection, unanswered message counts, topic extraction. The bot just won't suggest what to say.
+
+---
+
+## Morning Scan
+
+Every weekday at **7:00 AM Pacific**, the bot automatically scans all active channels and DMs you a prioritized queue:
+
+- **RESPOND NOW** (priority 70+) — frustrated clients, long-waiting messages
+- **RESPOND TODAY** (priority 40-69) — questions, requests, check-ins
+- **LOW PRIORITY** (priority 20-39) — can wait if needed
+
+Each entry shows why it needs attention, the client's mood, and (if drafts are enabled) a suggested message you can copy-paste or edit.
+
+You can also trigger this manually anytime with the `/scan` command.
 
 ---
 

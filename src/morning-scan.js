@@ -6,7 +6,7 @@
 // a prioritized queue via Slack DM.
 
 const { analyzeAllChannels } = require('./intelligence');
-const { draftBatch } = require('./drafter');
+const { draftBatch, isDraftingEnabled } = require('./drafter');
 const { log } = require('./utils');
 
 /**
@@ -135,6 +135,9 @@ function formatQueueForSlack(drafts, stats) {
   if (stats.frustrated > 0) {
     lines.push(`:warning: ${stats.frustrated} frustrated client(s)`);
   }
+  if (!isDraftingEnabled()) {
+    lines.push('_Draft messages are disabled. Set DRAFTS_ENABLED=true to enable._');
+  }
   lines.push('');
 
   // RESPOND NOW
@@ -190,6 +193,7 @@ function formatEntry(lines, d, num) {
 
   lines.push(`*${num}. #${channelName}* (Priority: ${d.priority_score})`);
   lines.push(`_Why:_ ${d.priority_reason || 'Needs response'}`);
+  if (d.situation) lines.push(`_Situation:_ ${d.situation}`);
 
   // Show last client message if available
   const lastMsg = d.note?.match(/"([^"]+)"/);
@@ -197,11 +201,15 @@ function formatEntry(lines, d, num) {
     lines.push(`_Last msg:_ "${escapeSlackText(lastMsg[1])}"`);
   }
 
-  lines.push('');
-  lines.push('*Draft message:*');
-  const draftText = escapeSlackText(d.draft);
-  lines.push(`> ${draftText.length > 500 ? draftText.slice(0, 500) + '...' : draftText}`);
-  lines.push(`_${d.confidence} confidence | ${d.situation}_`);
+  // Only show draft if drafting is enabled and a draft was generated
+  if (d.draft) {
+    lines.push('');
+    lines.push('*Draft message:*');
+    const draftText = escapeSlackText(d.draft);
+    lines.push(`> ${draftText.length > 500 ? draftText.slice(0, 500) + '...' : draftText}`);
+    lines.push(`_${d.confidence} confidence | ${d.style || 'casual'} style_`);
+  }
+
   lines.push('');
 }
 

@@ -2,7 +2,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const { log } = require('./utils');
 const { analyzeChannel, analyzeAllChannels } = require('./intelligence');
-const { draftMessage } = require('./drafter');
+const { draftMessage, isDraftingEnabled } = require('./drafter');
 
 const client = new Anthropic();
 
@@ -324,13 +324,18 @@ function executeTool(name, input) {
         lines.push(`⚠️ CANCELLATION DETECTED: ${analysis.cancellation.detected_by} (${analysis.cancellation.date})`);
       }
 
-      // Generate draft if response needed
+      // Generate draft if response needed and drafting is enabled
       if (analysis.needs_response.needs_response && !analysis.cancellation.cancelled) {
         const draft = draftMessage(analysis);
-        lines.push('');
-        lines.push(`Draft (${draft.situation}, ${draft.confidence} confidence):`);
-        lines.push(draft.draft);
-        if (draft.note) lines.push(`Note: ${draft.note}`);
+        if (draft) {
+          lines.push('');
+          lines.push(`Draft (${draft.situation}, ${draft.confidence} confidence, ${draft.style} style):`);
+          lines.push(draft.draft);
+          if (draft.note) lines.push(`Note: ${draft.note}`);
+        } else {
+          lines.push('');
+          lines.push('(Draft messages disabled — set DRAFTS_ENABLED=true to enable)');
+        }
       }
 
       return lines.join('\n');
@@ -352,8 +357,11 @@ function executeTool(name, input) {
           topics: a.topics.topics.slice(0, 3),
         };
         const draft = draftMessage(a);
-        entry.draftMessage = draft.draft;
-        entry.situation = draft.situation;
+        if (draft) {
+          entry.draftMessage = draft.draft;
+          entry.situation = draft.situation;
+          entry.style = draft.style;
+        }
         return entry;
       });
 
@@ -367,6 +375,7 @@ function executeTool(name, input) {
         totalChannelsScanned: analyses.length,
         channelsNeedingAttention: needingAttention.length,
         frustrated: analyses.filter(a => a.sentiment?.mood === 'frustrated').length,
+        draftsEnabled: isDraftingEnabled(),
         showing: top.length,
         queue: top,
         ...(remainingSummary && { additionalChannels: `${remaining.length} more: ${remainingSummary}` }),
