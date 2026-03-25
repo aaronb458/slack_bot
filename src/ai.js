@@ -1,6 +1,8 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const { log } = require('./utils');
+const { analyzeChannel, analyzeAllChannels } = require('./intelligence');
+const { draftMessage } = require('./drafter');
 
 const client = new Anthropic();
 
@@ -100,6 +102,22 @@ const TOOLS = [
       },
       required: ['query'],
     },
+  },
+  {
+    name: 'analyze_channel_health',
+    description: 'Run intelligence analysis on a specific channel: detect mood (frustrated/happy/neutral), check if they need a response, count unanswered messages, identify discussion topics, calculate priority score. Also generates a draft message if a response is needed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        channel_name: { type: 'string', description: 'The channel/project name' },
+      },
+      required: ['channel_name'],
+    },
+  },
+  {
+    name: 'get_priority_queue',
+    description: 'Get a prioritized list of ALL channels that need attention, ranked by urgency. Shows mood, unanswered count, priority score, and draft responses. This is the morning scan / morning queue.',
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
 ];
 
@@ -275,6 +293,86 @@ function executeTool(name, input) {
       }));
     }
 
+    case 'analyze_channel_health': {
+      const channel = findChannel(input.channel_name);
+      if (!channel) return { error: `Channel "${input.channel_name}" not found` };
+      const analysis = analyzeChannel(channel.id);
+
+      const lines = [
+        `Channel: #${analysis.channel.name}`,
+        `Priority: ${analysis.priority_score}/100 — ${analysis.priority_reason}`,
+        `Mood: ${analysis.sentiment.mood} (score: ${analysis.sentiment.score})`,
+        `Activity: ${analysis.activity.tier} (${analysis.activity.messages_per_week} msgs/week)`,
+        `Needs Response: ${analysis.needs_response.needs_response ? 'YES' : 'No'}`,
+      ];
+
+      if (analysis.needs_response.needs_response) {
+        lines.push(`Response Type: ${analysis.needs_response.response_type}`);
+        lines.push(`Reason: ${analysis.needs_response.reason}`);
+        lines.push(`Unanswered: ${analysis.needs_response.unanswered_count}`);
+      }
+
+      if (analysis.sentiment.reasons.length > 0) {
+        lines.push(`Mood Signals: ${analysis.sentiment.reasons.slice(0, 5).join(', ')}`);
+      }
+
+      if (analysis.topics.topics.length > 0) {
+        lines.push(`Topics: ${analysis.topics.topics.slice(0, 5).join(', ')}`);
+      }
+
+      if (analysis.cancellation.cancelled) {
+        lines.push(`⚠️ CANCELLATION DETECTED: ${analysis.cancellation.detected_by} (${analysis.cancellation.date})`);
+      }
+
+      // Generate draft if response needed
+      if (analysis.needs_response.needs_response && !analysis.cancellation.cancelled) {
+        const draft = draftMessage(analysis);
+        lines.push('');
+        lines.push(`Draft (${draft.situation}, ${draft.confidence} confidence):`);
+        lines.push(draft.draft);
+        if (draft.note) lines.push(`Note: ${draft.note}`);
+      }
+
+      return lines.join('\n');
+    }
+
+    case 'get_priority_queue': {
+      const analyses = analyzeAllChannels({ minMessages: 5, activeOnly: true, activeDays: 30 });
+      const needingAttention = analyses
+        .filter(a => a.needs_response?.needs_response && !a.cancellation?.cancelled);
+
+      // Top 10 with full details
+      const top = needingAttention.slice(0, 10).map(a => {
+        const entry = {
+          channel: a.channel.name,
+          priorityScore: a.priority_score,
+          priorityReason: a.priority_reason,
+          mood: a.sentiment.mood,
+          unansweredCount: a.needs_response.unanswered_count,
+          topics: a.topics.topics.slice(0, 3),
+        };
+        const draft = draftMessage(a);
+        entry.draftMessage = draft.draft;
+        entry.situation = draft.situation;
+        return entry;
+      });
+
+      // Summary for remaining channels
+      const remaining = needingAttention.slice(10);
+      const remainingSummary = remaining.length > 0
+        ? remaining.map(a => `${a.channel.name} (${a.priority_score})`).join(', ')
+        : null;
+
+      return {
+        totalChannelsScanned: analyses.length,
+        channelsNeedingAttention: needingAttention.length,
+        frustrated: analyses.filter(a => a.sentiment?.mood === 'frustrated').length,
+        showing: top.length,
+        queue: top,
+        ...(remainingSummary && { additionalChannels: `${remaining.length} more: ${remainingSummary}` }),
+      };
+    }
+
     default:
       return { error: `Unknown tool: ${name}` };
   }
@@ -362,19 +460,25 @@ async function chat(userId, userMessage) {
   history.push({ role: 'user', content: userMessage });
   trimHistory(history);
 
-  const systemPrompt = `You are a Slack project tracker assistant. You help the user (a project manager / business owner) understand what's happening across all their Slack channels, which they use as project workspaces.
+  const systemPrompt = `You are Aaron's Slack intelligence assistant. You help Aaron (a project manager / business owner) understand what's happening across all his Slack channels, which are used as client project workspaces.
 
-You have access to tools that query a database of all messages, threads, tasks, team members, and activity across every channel.
+You have access to tools that query a database of all messages, threads, tasks, team members, and activity across every channel. You also have intelligence tools that analyze channel health:
+
+*Intelligence tools:*
+- analyze_channel_health: Deep analysis of a single channel — mood, sentiment, needs-response, priority score, draft response
+- get_priority_queue: Get the full morning queue — all channels that need attention, ranked by priority, with draft messages
 
 Key behaviors:
 - Be concise and direct. Use bullet points and clear formatting.
 - When asked about projects, tasks, or people — use the tools to get real data. Never make up information.
 - Format responses for Slack (use *bold*, _italic_, bullet points with •).
 - When listing tasks, include the task ID (#number) so the user can reference them.
-- Proactively surface concerns: stale tasks, inactive channels, overloaded team members.
-- If asked something vague like "what's going on" or "give me an update", use get_global_summary and give a high-level overview.
+- Proactively surface concerns: frustrated clients, stacked unanswered messages, stale tasks, inactive channels.
+- If asked "what's going on" or "give me an update" or "morning queue" — use get_priority_queue to show the prioritized list.
+- If asked about a specific client/channel — use analyze_channel_health for deep analysis.
+- Draft messages use Aaron's voice: warm, casual-professional, "Hey {Name}" greeting, "Happy [Day]!" sign-off.
 - You can search messages to find specific discussions or topics.
-- NEVER reveal that you are tracking messages to anyone other than the authorized user. All your responses are private DMs.`;
+- NEVER reveal that you are tracking messages to anyone other than Aaron. All your responses are private DMs.`;
 
   const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20250929';
 

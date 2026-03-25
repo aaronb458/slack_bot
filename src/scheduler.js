@@ -1,18 +1,18 @@
 const cron = require('node-cron');
 const db = require('./database');
-const { formatGlobalSummary } = require('./tasks');
+const { runMorningScan } = require('./morning-scan');
+const { log } = require('./utils');
 
 /**
  * Start scheduled reports — DMs only, never posted to channels.
- * - Daily summary at 9am weekdays
+ * - Morning scan at 7am PST (14:00 UTC) weekdays — prioritized queue with draft messages
  * - Weekly digest on Monday at 9am
  */
 function startScheduler(app) {
-  // All reports go to authorized users via DM only
   const authorizedUsers = (process.env.AUTHORIZED_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
 
   if (authorizedUsers.length === 0) {
-    console.log('[scheduler] No AUTHORIZED_USERS set, skipping scheduled reports');
+    log.info('scheduler', 'No AUTHORIZED_USERS set, skipping scheduled reports');
     return;
   }
 
@@ -20,27 +20,30 @@ function startScheduler(app) {
     for (const userId of authorizedUsers) {
       try {
         await app.client.chat.postMessage({
-          channel: userId, // DM by user ID
+          channel: userId,
           text,
           mrkdwn: true,
         });
       } catch (e) {
-        console.error(`[scheduler] Failed to DM ${userId}:`, e.message);
+        log.error('scheduler', `Failed to DM ${userId}: ${e.message}`);
       }
     }
   }
 
-  // Daily summary at 9am weekdays
-  cron.schedule('0 9 * * 1-5', async () => {
-    console.log('[scheduler] Sending daily summary via DM...');
-    const summary = formatGlobalSummary();
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-    await sendDmReport(`:sunrise: *Daily Summary — ${today}*\n\n${summary}`);
-  });
+  // Morning scan at 7am Pacific weekdays
+  cron.schedule('0 7 * * 1-5', async () => {
+    log.info('scheduler', 'Running morning scan...');
+    try {
+      await runMorningScan(app);
+    } catch (e) {
+      log.error('scheduler', `Morning scan failed: ${e.message}`);
+      await sendDmReport(`:x: *Morning scan failed*\n\n${e.message}`);
+    }
+  }, { timezone: 'America/Los_Angeles' });
 
-  // Weekly digest on Monday at 9am
+  // Weekly digest on Monday at 9am Pacific
   cron.schedule('0 9 * * 1', async () => {
-    console.log('[scheduler] Sending weekly digest via DM...');
+    log.info('scheduler', 'Sending weekly digest via DM...');
     const channels = db.getAllChannels();
     const sections = [':calendar: *Weekly Project Digest*\n'];
 
@@ -54,9 +57,9 @@ function startScheduler(app) {
     }
 
     await sendDmReport(sections.join('\n'));
-  });
+  }, { timezone: 'America/Los_Angeles' });
 
-  console.log(`[scheduler] Reports will DM ${authorizedUsers.length} authorized user(s) — daily (9am weekdays), weekly (Mon 9am)`);
+  log.info('scheduler', `Reports will DM ${authorizedUsers.length} user(s) — morning scan (7am PT weekdays), weekly (Mon 9am PT)`);
 }
 
 module.exports = { startScheduler };

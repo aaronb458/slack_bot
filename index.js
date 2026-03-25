@@ -15,6 +15,17 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// --- Warn if team user IDs are not configured ---
+const teamIds = (process.env.TEAM_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const authIds = (process.env.AUTHORIZED_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
+if (teamIds.length === 0 && authIds.length === 0) {
+  console.warn('\n  ⚠️  WARNING: TEAM_USER_IDS is not set and AUTHORIZED_USERS is empty.');
+  console.warn('  The intelligence module will treat ALL users as clients.');
+  console.warn('  Set TEAM_USER_IDS in your .env to your team\'s Slack user IDs.\n');
+} else if (teamIds.length === 0) {
+  console.warn('\n  ⚠️  NOTE: TEAM_USER_IDS is not set — falling back to AUTHORIZED_USERS for team detection.\n');
+}
+
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
