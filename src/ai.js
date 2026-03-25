@@ -2,7 +2,7 @@ const db = require('./database');
 const { log } = require('./utils');
 const { getProvider, resolveModel } = require('./ai-provider');
 const { analyzeChannel, analyzeAllChannels } = require('./intelligence');
-const { draftMessage, isDraftingEnabled } = require('./drafter');
+const { generateAIDraft, isDraftingEnabled } = require('./drafter');
 
 /**
  * Tools that Claude can call to query project data.
@@ -117,12 +117,24 @@ const TOOLS = [
     description: 'Get a prioritized list of ALL channels that need attention, ranked by urgency. Shows mood, unanswered count, priority score, and draft responses. This is the morning scan / morning queue.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'get_channel_trend',
+    description: 'Get the historical trend of a channel\'s health over time — priority scores, mood changes, response patterns. Shows how a client relationship has evolved over the past 30 days.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        channel_name: { type: 'string', description: 'The channel/project name' },
+        days: { type: 'number', description: 'Number of days to look back (default 30)' },
+      },
+      required: ['channel_name'],
+    },
+  },
 ];
 
 /**
  * Execute a tool call and return the result.
  */
-function executeTool(name, input) {
+async function executeTool(name, input) {
   switch (name) {
     case 'get_all_projects': {
       const channels = db.getAllChannels();
@@ -324,7 +336,7 @@ function executeTool(name, input) {
 
       // Generate draft if response needed and drafting is enabled
       if (analysis.needs_response.needs_response && !analysis.cancellation.cancelled) {
-        const draft = draftMessage(analysis);
+        const draft = await generateAIDraft(analysis);
         if (draft) {
           lines.push('');
           lines.push(`Draft (${draft.situation}, ${draft.confidence} confidence, ${draft.style} style):`);
@@ -345,7 +357,9 @@ function executeTool(name, input) {
         .filter(a => a.needs_response?.needs_response && !a.cancellation?.cancelled);
 
       // Top 10 with full details
-      const top = needingAttention.slice(0, 10).map(a => {
+      const topSlice = needingAttention.slice(0, 10);
+      const top = [];
+      for (const a of topSlice) {
         const entry = {
           channel: a.channel.name,
           priorityScore: a.priority_score,
@@ -354,14 +368,14 @@ function executeTool(name, input) {
           unansweredCount: a.needs_response.unanswered_count,
           topics: a.topics.topics.slice(0, 3),
         };
-        const draft = draftMessage(a);
+        const draft = await generateAIDraft(a);
         if (draft) {
           entry.draftMessage = draft.draft;
           entry.situation = draft.situation;
           entry.style = draft.style;
         }
-        return entry;
-      });
+        top.push(entry);
+      }
 
       // Summary for remaining channels
       const remaining = needingAttention.slice(10);
@@ -377,6 +391,29 @@ function executeTool(name, input) {
         showing: top.length,
         queue: top,
         ...(remainingSummary && { additionalChannels: `${remaining.length} more: ${remainingSummary}` }),
+      };
+    }
+
+    case 'get_channel_trend': {
+      const channel = findChannel(input.channel_name);
+      if (!channel) return { error: `Channel "${input.channel_name}" not found` };
+      const history = db.getChannelAnalysisHistory(channel.id, input.days || 30);
+      if (history.length === 0) return { message: `No analysis history for #${channel.name} yet. Run /scan first.` };
+
+      return {
+        channel: channel.name,
+        dataPoints: history.length,
+        period: `${input.days || 30} days`,
+        trend: history.map(h => ({
+          date: new Date(h.analyzed_at * 1000).toISOString().split('T')[0],
+          priority: h.priority_score,
+          mood: h.sentiment_mood,
+          moodScore: h.sentiment_score,
+          needsResponse: !!h.needs_response,
+          unanswered: h.unanswered_count,
+          activity: h.activity_tier,
+          topics: JSON.parse(h.topics || '[]'),
+        })),
       };
     }
 
@@ -508,7 +545,7 @@ Key behaviors:
         if (block.type === 'tool_use') {
           log.info('ai', `Tool call: ${block.name}(${JSON.stringify(block.input).slice(0, 200)})`);
           try {
-            const result = executeTool(block.name, block.input);
+            const result = await executeTool(block.name, block.input);
             // Cap tool result size to avoid blowing up context
             const resultStr = JSON.stringify(result);
             toolResults.push({

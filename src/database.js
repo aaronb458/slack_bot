@@ -105,6 +105,26 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
     CREATE INDEX IF NOT EXISTS idx_activity_channel ON activity_log(channel_id);
     CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
+
+    -- Channel analyses (intelligence scan history)
+    CREATE TABLE IF NOT EXISTS channel_analyses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT NOT NULL,
+      analyzed_at INTEGER NOT NULL,
+      priority_score INTEGER,
+      sentiment_mood TEXT,
+      sentiment_score INTEGER,
+      needs_response INTEGER,
+      unanswered_count INTEGER,
+      response_type TEXT,
+      activity_tier TEXT,
+      topics TEXT,
+      cancelled INTEGER DEFAULT 0,
+      FOREIGN KEY (channel_id) REFERENCES channels(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_analyses_channel ON channel_analyses(channel_id);
+    CREATE INDEX IF NOT EXISTS idx_analyses_time ON channel_analyses(analyzed_at);
   `);
 }
 
@@ -352,6 +372,48 @@ const getProjectSummary = (channelId) => {
   };
 };
 
+// --- Channel analysis helpers ---
+
+const saveChannelAnalysis = (analysis) => {
+  getDb().prepare(`
+    INSERT INTO channel_analyses (channel_id, analyzed_at, priority_score, sentiment_mood, sentiment_score, needs_response, unanswered_count, response_type, activity_tier, topics, cancelled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    analysis.channel.id,
+    Math.floor(Date.now() / 1000),
+    analysis.priority_score,
+    analysis.sentiment.mood,
+    analysis.sentiment.score,
+    analysis.needs_response.needs_response ? 1 : 0,
+    analysis.needs_response.unanswered_count || 0,
+    analysis.needs_response.response_type || 'none',
+    analysis.activity.tier,
+    JSON.stringify(analysis.topics.topics || []),
+    analysis.cancellation.cancelled ? 1 : 0
+  );
+};
+
+const getChannelAnalysisHistory = (channelId, days = 30) => {
+  const since = Math.floor(Date.now() / 1000) - (days * 86400);
+  return getDb().prepare(`
+    SELECT * FROM channel_analyses
+    WHERE channel_id = ? AND analyzed_at > ?
+    ORDER BY analyzed_at DESC
+  `).all(channelId, since);
+};
+
+const getLatestAnalyses = () => {
+  return getDb().prepare(`
+    SELECT ca.* FROM channel_analyses ca
+    INNER JOIN (
+      SELECT channel_id, MAX(analyzed_at) as max_at
+      FROM channel_analyses
+      GROUP BY channel_id
+    ) latest ON ca.channel_id = latest.channel_id AND ca.analyzed_at = latest.max_at
+    ORDER BY ca.priority_score DESC
+  `).all();
+};
+
 module.exports = {
   getDb,
   upsertChannel, markChannelBackfilled, getChannel, getAllChannels,
@@ -360,4 +422,5 @@ module.exports = {
   upsertMessage, getChannelMessages, getThreadReplies,
   createTask, updateTaskStatus, getTasksByChannel, getAllTasks, getTasksByUser,
   logActivity, getChannelActivity, getProjectSummary,
+  saveChannelAnalysis, getChannelAnalysisHistory, getLatestAnalyses,
 };

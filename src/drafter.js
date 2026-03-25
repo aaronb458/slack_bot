@@ -4,6 +4,13 @@
 // Generates draft messages for channels that need a response.
 // Supports multiple tone styles via DRAFT_STYLE env var.
 // Can be disabled entirely via DRAFTS_ENABLED=false.
+// Now includes AI-powered draft generation with template fallback.
+
+const { getProvider, resolveModel } = require('./ai-provider');
+const db = require('./database');
+const { log } = require('./utils');
+
+const DRAFT_AI_TIMEOUT_MS = 15000; // 15 seconds — drafts should be fast
 
 // ============================================================================
 // Configuration
@@ -344,9 +351,189 @@ function draftBatch(analyses) {
   return results;
 }
 
+// ============================================================================
+// AI-Powered Draft Generation
+// ============================================================================
+
+/**
+ * Describe the situation in plain English for the AI prompt.
+ */
+function describeSituation(situation) {
+  const descriptions = {
+    frustrated_client: 'The client is frustrated and unhappy. They may have expressed dissatisfaction, complained, or shown signs of impatience.',
+    stacked_unanswered: 'Multiple client messages have gone unanswered. They have been waiting for a response and may be feeling ignored.',
+    direct_question: 'The client asked a direct question or made a specific request that needs an answer.',
+    happy_acknowledgment: 'The client expressed something positive — good news, satisfaction, or excitement. A brief, warm acknowledgment is appropriate.',
+    general_checkin: 'A general check-in is needed. The client may be waiting for an update or just needs to hear from you.',
+  };
+  return descriptions[situation] || descriptions.general_checkin;
+}
+
+/**
+ * Describe the draft style in plain English for the AI prompt.
+ */
+function describeStyle(styleName) {
+  const descriptions = {
+    casual: 'Warm and casual-professional. Use "Hey {Name}" greetings. Sign off with something upbeat like "Happy Monday!" or "Have an awesome weekend!" Be personable and genuine, not stiff.',
+    professional: 'Polished and buttoned-up. Use "Hi {Name}" greetings. Sign off with "Best regards." or "Thank you." Be respectful and formal but not cold.',
+    friendly: 'Warm and upbeat but slightly less personal than casual. Use "Hi {Name}!" greetings. Sign off with "Have a great day!" or "Talk soon!" Be cheerful and encouraging.',
+  };
+  return descriptions[styleName] || descriptions.casual;
+}
+
+/**
+ * Generate an AI-powered draft message based on channel analysis.
+ * Falls back to template-based draftMessage() if the AI call fails.
+ * Returns null if drafting is disabled via DRAFTS_ENABLED=false.
+ *
+ * @param {object} analysis - Output from intelligence.analyzeChannel()
+ * @returns {Promise<{ draft: string, situation: string, confidence: string, note: string, style: string } | null>}
+ */
+async function generateAIDraft(analysis) {
+  if (!isDraftingEnabled()) return null;
+
+  const { situation, confidence } = detectSituation(analysis);
+  const styleName = getDraftStyle();
+  const ownerName = process.env.BOT_OWNER_NAME || 'the owner';
+
+  // Get client name
+  const lastClient = analysis.needs_response?.last_client_message;
+  const name = firstName(lastClient?.sender_name || '');
+
+  // Get topic
+  const primaryTopic = analysis.topics?.primary_topic
+    || (analysis.topics?.topics?.[0])
+    || 'your project';
+
+  // Get mood info
+  const mood = analysis.sentiment?.mood || 'neutral';
+  const moodReasons = (analysis.sentiment?.reasons || []).slice(0, 3).join(', ') || 'no specific signals';
+  const unansweredCount = analysis.needs_response?.unanswered_count || 0;
+
+  // Fetch recent messages for context
+  let recentMessages = [];
+  try {
+    const channelId = analysis.channel?.id;
+    if (channelId) {
+      recentMessages = db.getChannelMessages(channelId, 15);
+    }
+  } catch (e) {
+    log.warn('drafter', `Failed to fetch recent messages for AI draft: ${e.message}`);
+  }
+
+  // Format messages for the prompt
+  const formattedMessages = recentMessages
+    .map(m => {
+      const senderName = m.display_name || m.real_name || 'Unknown';
+      const text = (m.text || '').slice(0, 200);
+      return `${senderName}: ${text}`;
+    })
+    .join('\n') || '(No recent messages available)';
+
+  const currentDay = getCurrentDay();
+
+  const prompt = `You are drafting a short message for ${ownerName} to send to a client in Slack.
+
+Context:
+- Client: ${name}
+- Situation: ${describeSituation(situation)}
+- Client mood: ${mood} (${moodReasons})
+- Unanswered messages: ${unansweredCount}
+- Topic: ${primaryTopic}
+
+Recent conversation (newest first):
+${formattedMessages}
+
+Style: ${styleName}
+${describeStyle(styleName)}
+
+Rules:
+- Address the client by first name
+- Reference their SPECIFIC concern, not generic platitudes
+- 2-4 sentences maximum
+- Include a concrete next step or commitment
+- Match the ${styleName} tone exactly
+- Today is ${currentDay}
+- End with an appropriate sign-off
+
+Write ONLY the message. No explanations, alternatives, or quotation marks.`;
+
+  try {
+    const provider = getProvider();
+    const model = process.env.DRAFT_MODEL || resolveModel();
+
+    // Use AbortController for a separate 15s timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DRAFT_AI_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await provider.createMessage({
+        model,
+        max_tokens: 300,
+        system: 'You are a helpful assistant that writes short, natural Slack messages. Output only the message text, nothing else.',
+        messages: [{ role: 'user', content: prompt }],
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Extract text from response
+    const textBlocks = (response.content || []).filter(b => b.type === 'text');
+    const draft = textBlocks.map(b => b.text).join('\n').trim();
+
+    if (!draft) {
+      log.warn('drafter', `AI returned empty draft for #${analysis.channel?.name || 'unknown'}, falling back to template`);
+      return draftMessage(analysis);
+    }
+
+    // Build contextual note (same as template version)
+    const note = buildNote(situation, analysis, primaryTopic);
+
+    log.info('drafter', `AI draft generated for #${analysis.channel?.name || 'unknown'} (${situation}, ${model})`);
+
+    return { draft, situation, confidence, note, style: styleName };
+  } catch (err) {
+    log.warn('drafter', `AI draft failed for #${analysis.channel?.name || 'unknown'}: ${err.message} — falling back to template`);
+    return draftMessage(analysis);
+  }
+}
+
+/**
+ * Generate AI-powered draft messages for multiple channel analyses, sorted by priority.
+ * Falls back to template-based drafts per-channel if AI fails.
+ * If drafting is disabled, returns template-style results (nulls).
+ *
+ * @param {Array} analyses - Array of analysis objects from intelligence.analyzeAllChannels()
+ * @returns {Promise<Array>} Array of { channel, priority_score, priority_reason, draft, situation, confidence, note, style }
+ */
+async function generateAIDraftBatch(analyses) {
+  const results = [];
+
+  for (const analysis of analyses) {
+    if (!analysis.needs_response?.needs_response) continue;
+    if (analysis.cancellation?.cancelled) continue;
+
+    // Try AI draft, fall back to template
+    const draftResult = await generateAIDraft(analysis);
+
+    results.push({
+      channel: analysis.channel,
+      priority_score: analysis.priority_score,
+      priority_reason: analysis.priority_reason,
+      ...(draftResult || {}),
+    });
+  }
+
+  results.sort((a, b) => b.priority_score - a.priority_score);
+  return results;
+}
+
 module.exports = {
   draftMessage,
   draftBatch,
+  generateAIDraft,
+  generateAIDraftBatch,
   isDraftingEnabled,
   getDraftStyle,
   detectSituation,

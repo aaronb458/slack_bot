@@ -6,7 +6,7 @@
 // a prioritized queue via Slack DM.
 
 const { analyzeAllChannels } = require('./intelligence');
-const { draftBatch, isDraftingEnabled } = require('./drafter');
+const { draftBatch, generateAIDraftBatch, isDraftingEnabled } = require('./drafter');
 const { log } = require('./utils');
 
 /**
@@ -56,8 +56,8 @@ async function runMorningScan(app) {
 
     log.info('scan', `Analyzed ${analyses.length} active channels`);
 
-    // 2. Draft messages for channels needing attention
-    const drafts = draftBatch(analyses);
+    // 2. Draft messages for channels needing attention (AI-powered with template fallback)
+    const drafts = await generateAIDraftBatch(analyses);
 
     log.info('scan', `Drafted ${drafts.length} messages for channels needing response`);
 

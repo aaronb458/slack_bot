@@ -143,32 +143,39 @@ function analyzeSentiment(messages, teamUserIds, lastN = 10) {
   for (const msg of clientMessages) {
     const text = msg.text;
 
-    const frustratedMatch = matchesAny(text, FRUSTRATED_PATTERNS);
-    if (frustratedMatch) {
-      score -= 15;
-      reasons.push(`frustrated:"${frustratedMatch}"`);
-    }
-
+    // Check happy patterns FIRST — if the message is positive,
+    // punctuation (!! / ??? / ALL CAPS) is emphasis, not frustration
     const happyMatch = matchesAny(text, HAPPY_PATTERNS);
     if (happyMatch) {
       score += 10;
       reasons.push(`happy:"${happyMatch}"`);
     }
 
-    // Multiple question marks (3+)
-    if ((text.match(/\?/g) || []).length >= 3) {
-      score -= 10;
-      reasons.push('excessive_questions');
+    const frustratedMatch = matchesAny(text, FRUSTRATED_PATTERNS);
+    if (frustratedMatch) {
+      score -= 15;
+      reasons.push(`frustrated:"${frustratedMatch}"`);
     }
 
-    // ALL CAPS shouting
-    if (/\b[A-Z]{2,}(?:\s+[A-Z]{2,}){4,}\b/.test(text)) {
-      score -= 12;
-      reasons.push('all_caps_shouting');
-    }
+    // Only apply punctuation-based penalties when the message
+    // did NOT match a happy pattern — otherwise the punctuation
+    // is just enthusiastic emphasis on something positive
+    if (!happyMatch) {
+      // Multiple question marks (3+)
+      if ((text.match(/\?/g) || []).length >= 3) {
+        score -= 10;
+        reasons.push('excessive_questions');
+      }
 
-    if (/!!/.test(text)) score -= 5;
-    if (/\?\?\?/.test(text)) score -= 8;
+      // ALL CAPS shouting
+      if (/\b[A-Z]{2,}(?:\s+[A-Z]{2,}){4,}\b/.test(text)) {
+        score -= 12;
+        reasons.push('all_caps_shouting');
+      }
+
+      if (/!!/.test(text)) score -= 5;
+      if (/\?\?\?/.test(text)) score -= 8;
+    }
   }
 
   score = Math.max(-100, Math.min(100, score));
@@ -515,6 +522,13 @@ function analyzeChannel(channelId, teamUserIds) {
 
   analysis.priority_score = computePriority(analysis);
   analysis.priority_reason = buildPriorityReason(analysis);
+
+  // Persist analysis for historical tracking
+  try {
+    db.saveChannelAnalysis(analysis);
+  } catch (e) {
+    log.warn('intelligence', `Failed to persist analysis for ${channelId}: ${e.message}`);
+  }
 
   return analysis;
 }
