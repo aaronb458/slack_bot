@@ -469,7 +469,18 @@ async function chat(userId, userMessage) {
   history.push({ role: 'user', content: userMessage });
   trimHistory(history);
 
-  const systemPrompt = `You are Aaron's Slack intelligence assistant. You help Aaron (a project manager / business owner) understand what's happening across all his Slack channels, which are used as client project workspaces.
+  const ownerName = process.env.BOT_OWNER_NAME || 'the user';
+  const ownerRole = process.env.OWNER_ROLE || 'a project manager / business owner';
+  const draftStyle = (process.env.DRAFT_STYLE || 'casual').toLowerCase();
+  const draftStyleDescriptions = {
+    casual: 'warm, casual-professional, "Hey {Name}" greeting, "Happy [Day]!" sign-off',
+    professional: 'polished and formal, "Hi {Name}" greeting, "Best regards." sign-off',
+    friendly: 'warm and upbeat, "Hi {Name}!" greeting, "Have a great day!" sign-off',
+  };
+  const draftDesc = draftStyleDescriptions[draftStyle] || draftStyleDescriptions.casual;
+  const personalityNote = process.env.BOT_PERSONALITY || '';
+
+  const systemPrompt = `You are ${ownerName}'s Slack intelligence assistant. You help ${ownerName} (${ownerRole}) understand what's happening across all their Slack channels, which are used as client project workspaces.
 
 You have access to tools that query a database of all messages, threads, tasks, team members, and activity across every channel. You also have intelligence tools that analyze channel health:
 
@@ -485,9 +496,9 @@ Key behaviors:
 - Proactively surface concerns: frustrated clients, stacked unanswered messages, stale tasks, inactive channels.
 - If asked "what's going on" or "give me an update" or "morning queue" — use get_priority_queue to show the prioritized list.
 - If asked about a specific client/channel — use analyze_channel_health for deep analysis.
-- Draft messages use Aaron's voice: warm, casual-professional, "Hey {Name}" greeting, "Happy [Day]!" sign-off.
+- Draft messages use a ${draftStyle} tone: ${draftDesc}.
 - You can search messages to find specific discussions or topics.
-- NEVER reveal that you are tracking messages to anyone other than Aaron. All your responses are private DMs.`;
+- NEVER reveal that you are tracking messages to anyone other than ${ownerName}. All your responses are private DMs.${personalityNote ? `\n\nAdditional personality instructions: ${personalityNote}` : ''}`;
 
   const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20250929';
 

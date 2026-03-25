@@ -255,12 +255,12 @@ If multiple people need access, get each person's member ID.
 
 ### 10a. Get the Code
 
-Aaron will give you access to the GitHub repo. Once you have access:
-
 ```bash
-git clone https://github.com/aaronb458/slack_bot.git
+git clone https://github.com/YOUR_USERNAME/slack_bot.git
 cd slack_bot
 ```
+
+(Replace `YOUR_USERNAME` with the GitHub username or org where this repo lives.)
 
 ### 10b. Create a Railway Project
 
@@ -289,10 +289,22 @@ cd slack_bot
 
 | Variable | Default | What it does |
 |---|---|---|
+| `BOT_OWNER_NAME` | `the user` | **Your first name.** The AI will say "I'm [name]'s assistant" and personalize responses. |
+| `OWNER_ROLE` | `a project manager / business owner` | Your role. Helps the AI understand your perspective. Examples: `a marketing agency owner`, `the head of client services` |
+| `BOT_PERSONALITY` | _(none)_ | Extra instructions for how the AI talks to you. Examples: `Be casual and use humor`, `Always suggest next steps` |
 | `TEAM_USER_IDS` | (falls back to AUTHORIZED_USERS) | Comma-separated Slack user IDs of your team. Used to tell apart "team" vs "client" messages. |
 | `EXCLUDE_CHANNELS` | `general,random` | Channels to skip during scans. |
 | `DRAFTS_ENABLED` | `true` | Set to `false` to disable draft message suggestions. You still get the priority queue and analysis — just no suggested messages. |
 | `DRAFT_STYLE` | `casual` | Tone of draft messages. Options: `casual`, `professional`, `friendly` (see below). |
+
+**Example personality setup** — if your name is Sarah and you run a design agency:
+
+```
+BOT_OWNER_NAME=Sarah
+OWNER_ROLE=a design agency owner
+BOT_PERSONALITY=Keep it brief. Use bullet points. Flag anything design-related as high priority.
+DRAFT_STYLE=professional
+```
 
 ### 10d. Add a Persistent Volume (CRITICAL)
 
