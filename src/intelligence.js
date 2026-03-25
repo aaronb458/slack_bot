@@ -400,7 +400,76 @@ function extractTopics(messages, lastN = 15) {
 }
 
 // ============================================================================
-// 6. Priority Score Calculation
+// 6. Trend Boost (historical analysis)
+// ============================================================================
+
+/**
+ * Compute a priority boost based on historical trend data from channel_analyses.
+ *
+ * @param {string} channelId - Slack channel ID
+ * @returns {{ boost: number, signals: string[] }}
+ */
+function computeTrendBoost(channelId) {
+  if (!channelId) return { boost: 0, signals: [] };
+
+  let history;
+  try {
+    history = db.getChannelAnalysisHistory(channelId, 14); // last 2 weeks, newest first
+  } catch (err) {
+    log.warn('intelligence', `Trend boost DB error for ${channelId}: ${err.message}`);
+    return { boost: 0, signals: [] };
+  }
+
+  if (!history || history.length < 2) return { boost: 0, signals: [] };
+
+  let boost = 0;
+  const signals = [];
+
+  // --- Chronic frustration: 3+ of last 5 snapshots show frustrated ---
+  const last5 = history.slice(0, 5);
+  const frustratedCount = last5.filter(h => h.sentiment_mood === 'frustrated').length;
+  if (frustratedCount >= 3) {
+    boost += 15;
+    signals.push(`Chronically frustrated (${frustratedCount} of last ${last5.length} scans)`);
+  }
+
+  // --- Chronic unanswered: 3+ of last 5 snapshots need response ---
+  const unansweredCount = last5.filter(h => h.needs_response === 1).length;
+  if (unansweredCount >= 3) {
+    boost += 10;
+    signals.push('Repeatedly needs response');
+  }
+
+  // --- Trending worse / better: compare recent 3 vs previous 3 ---
+  if (history.length >= 6) {
+    const recent3 = history.slice(0, 3);
+    const previous3 = history.slice(3, 6);
+    const avgRecent = recent3.reduce((s, h) => s + (h.priority_score || 0), 0) / recent3.length;
+    const avgPrevious = previous3.reduce((s, h) => s + (h.priority_score || 0), 0) / previous3.length;
+    const delta = avgRecent - avgPrevious;
+
+    if (delta >= 15) {
+      boost += 10;
+      signals.push('Priority trending upward');
+    } else if (delta <= -15) {
+      boost -= 5;
+      signals.push('Improving');
+    }
+  }
+
+  // --- Long-standing issue: ALL snapshots in last 7 days need response ---
+  const sevenDaysAgo = Math.floor(Date.now() / 1000) - (7 * 86400);
+  const last7d = history.filter(h => h.analyzed_at > sevenDaysAgo);
+  if (last7d.length >= 2 && last7d.every(h => h.needs_response === 1)) {
+    boost += 20;
+    signals.push('Unanswered for 7+ days');
+  }
+
+  return { boost, signals };
+}
+
+// ============================================================================
+// 7. Priority Score Calculation
 // ============================================================================
 
 function computePriority(analysis) {
@@ -424,6 +493,16 @@ function computePriority(analysis) {
   if (analysis.cancellation.cancelled) score -= 100;
   if (!analysis.needs_response.needs_response) score -= 20;
   if (analysis.activity.tier === 'chill') score -= 10;
+
+  // Historical trend boost
+  let trend = { boost: 0, signals: [] };
+  try {
+    trend = computeTrendBoost(analysis.channel?.id);
+  } catch (err) {
+    log.warn('intelligence', `Trend boost failed for ${analysis.channel?.id}: ${err.message}`);
+  }
+  score += trend.boost;
+  analysis.trend = trend;
 
   return Math.max(0, Math.min(100, score));
 }
@@ -461,11 +540,16 @@ function buildPriorityReason(analysis) {
     reasons.push('No response needed');
   }
 
+  // Append historical trend signals
+  if (analysis.trend?.signals?.length > 0) {
+    reasons.push(...analysis.trend.signals);
+  }
+
   return reasons.join('; ') || 'Informational';
 }
 
 // ============================================================================
-// 7. Master Channel Analysis
+// 8. Master Channel Analysis
 // ============================================================================
 
 /**

@@ -356,6 +356,37 @@ function draftBatch(analyses) {
 // ============================================================================
 
 /**
+ * Format historical analysis snapshots into a concise summary for the AI prompt.
+ */
+function formatHistoryForPrompt(history) {
+  if (!history || history.length < 2) return '';
+
+  const lines = ['Recent channel history:'];
+
+  // Show last 5 snapshots as brief summary
+  const recent = history.slice(0, 5);
+  for (const h of recent) {
+    const date = new Date(h.analyzed_at * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const responded = h.needs_response ? `needs response (${h.unanswered_count} unanswered)` : 'no response needed';
+    lines.push(`- ${date}: mood ${h.sentiment_mood}, priority ${h.priority_score}/100, ${responded}`);
+  }
+
+  // Add trend summary
+  const moods = recent.map(h => h.sentiment_mood);
+  const frustratedCount = moods.filter(m => m === 'frustrated').length;
+  if (frustratedCount >= 3) {
+    lines.push(`NOTE: Client has been frustrated in ${frustratedCount} of last ${recent.length} check-ins. This is a chronic issue, not a one-time complaint.`);
+  }
+
+  const avgPriority = recent.reduce((sum, h) => sum + h.priority_score, 0) / recent.length;
+  if (avgPriority >= 60) {
+    lines.push(`NOTE: This channel has been consistently high-priority (avg ${Math.round(avgPriority)}/100). Treat with extra urgency.`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Describe the situation in plain English for the AI prompt.
  */
 function describeSituation(situation) {
@@ -421,6 +452,20 @@ async function generateAIDraft(analysis) {
     log.warn('drafter', `Failed to fetch recent messages for AI draft: ${e.message}`);
   }
 
+  // Fetch historical context
+  let historyContext = '';
+  try {
+    const channelId = analysis.channel?.id;
+    if (channelId) {
+      const history = db.getChannelAnalysisHistory(channelId, 14);
+      if (history.length >= 2) {
+        historyContext = formatHistoryForPrompt(history);
+      }
+    }
+  } catch (e) {
+    log.warn('drafter', `Failed to fetch history for AI draft: ${e.message}`);
+  }
+
   // Format messages for the prompt
   const formattedMessages = recentMessages
     .map(m => {
@@ -443,7 +488,7 @@ Context:
 
 Recent conversation (newest first):
 ${formattedMessages}
-
+${historyContext ? `\n${historyContext}\n` : ''}
 Style: ${styleName}
 ${describeStyle(styleName)}
 
@@ -455,6 +500,8 @@ Rules:
 - Match the ${styleName} tone exactly
 - Today is ${currentDay}
 - End with an appropriate sign-off
+- If history shows a chronic issue, acknowledge the ongoing nature (don't treat it as a new problem)
+- If the client has been waiting across multiple check-ins, show extra empathy and urgency
 
 Write ONLY the message. No explanations, alternatives, or quotation marks.`;
 
@@ -521,6 +568,7 @@ async function generateAIDraftBatch(analyses) {
       channel: analysis.channel,
       priority_score: analysis.priority_score,
       priority_reason: analysis.priority_reason,
+      trend: analysis.trend || null,
       ...(draftResult || {}),
     });
   }

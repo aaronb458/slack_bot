@@ -135,6 +135,10 @@ function formatQueueForSlack(drafts, stats) {
   if (stats.frustrated > 0) {
     lines.push(`:warning: ${stats.frustrated} frustrated client(s)`);
   }
+  const trendingWorse = drafts.filter(d => d.trend?.signals?.some(s => s.includes('trending') || s.includes('Chronic') || s.includes('7+ days'))).length;
+  if (trendingWorse > 0) {
+    lines.push(`:chart_with_upwards_trend: ${trendingWorse} channel(s) trending worse`);
+  }
   if (!isDraftingEnabled()) {
     lines.push('_Draft messages are disabled. Set DRAFTS_ENABLED=true to enable._');
   }
@@ -193,6 +197,10 @@ function formatEntry(lines, d, num) {
 
   lines.push(`*${num}. #${channelName}* (Priority: ${d.priority_score})`);
   lines.push(`_Why:_ ${d.priority_reason || 'Needs response'}`);
+  // Show trend signals if present
+  if (d.trend?.signals?.length > 0) {
+    lines.push(`:chart_with_upwards_trend: _Trend:_ ${d.trend.signals.join(' | ')}`);
+  }
   if (d.situation) lines.push(`_Situation:_ ${d.situation}`);
 
   // Show last client message if available
