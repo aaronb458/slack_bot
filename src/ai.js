@@ -1,10 +1,8 @@
-const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const { log } = require('./utils');
+const { getProvider, resolveModel } = require('./ai-provider');
 const { analyzeChannel, analyzeAllChannels } = require('./intelligence');
 const { draftMessage, isDraftingEnabled } = require('./drafter');
-
-const client = new Anthropic();
 
 /**
  * Tools that Claude can call to query project data.
@@ -425,20 +423,6 @@ function simplifyTask(t) {
 const conversationHistory = new Map(); // userId -> messages[]
 const MAX_HISTORY = 40; // max message entries in history
 const MAX_TOOL_LOOPS = 8; // safety cap on tool-calling rounds
-const CLAUDE_TIMEOUT_MS = 45000; // 45s timeout per API call
-
-/**
- * Call the Claude API with a timeout wrapper.
- */
-async function callClaude(params) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CLAUDE_TIMEOUT_MS);
-  try {
-    return await client.messages.create(params, { signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
 
 /**
  * Trim conversation history to stay within context limits.
@@ -500,10 +484,11 @@ Key behaviors:
 - You can search messages to find specific discussions or topics.
 - NEVER reveal that you are tracking messages to anyone other than ${ownerName}. All your responses are private DMs.${personalityNote ? `\n\nAdditional personality instructions: ${personalityNote}` : ''}`;
 
-  const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20250929';
+  const provider = getProvider();
+  const model = resolveModel();
 
   try {
-    let response = await callClaude({
+    let response = await provider.createMessage({
       model,
       max_tokens: 2048,
       system: systemPrompt,
@@ -545,7 +530,7 @@ Key behaviors:
 
       history.push({ role: 'user', content: toolResults });
 
-      response = await callClaude({
+      response = await provider.createMessage({
         model,
         max_tokens: 2048,
         system: systemPrompt,
@@ -569,20 +554,20 @@ Key behaviors:
   } catch (error) {
     // Handle specific error types
     if (error.name === 'AbortError' || error.message?.includes('abort')) {
-      log.error('ai', `Timeout after ${CLAUDE_TIMEOUT_MS}ms for user ${userId}`);
-      return "That took too long — Claude timed out. Try a simpler question, or type `reset` and try again.";
+      log.error('ai', `Timeout for user ${userId}`);
+      return "That took too long — the AI timed out. Try a simpler question, or type `reset` and try again.";
     }
     if (error.status === 429) {
-      log.error('ai', `Rate limited by Anthropic API for user ${userId}`);
+      log.error('ai', `Rate limited for user ${userId}`);
       return "I'm being rate-limited by the AI service. Wait a minute and try again.";
     }
     if (error.status === 529 || error.status === 503) {
-      log.error('ai', `Anthropic API overloaded (${error.status}) for user ${userId}`);
+      log.error('ai', `AI service overloaded (${error.status}) for user ${userId}`);
       return "The AI service is temporarily overloaded. Try again in a moment.";
     }
     if (error.status === 401) {
-      log.error('ai', 'Invalid ANTHROPIC_API_KEY');
-      return "Bot configuration error: invalid API key. Contact the admin.";
+      log.error('ai', 'Invalid API key');
+      return "Bot configuration error: invalid API key. Check your AI_PROVIDER and API key settings.";
     }
 
     log.error('ai', `Unexpected error for user ${userId}: ${error.message}`);

@@ -1,6 +1,6 @@
 # Slack Project Tracker Bot
 
-A silent Slack bot that sits in every channel, tracks all messages, threads, and tasks — and lets authorized users privately ask it questions via DM, powered by Claude AI.
+A silent Slack bot that sits in every channel, tracks all messages, threads, and tasks — and lets you privately ask it questions via DM, powered by AI.
 
 **The team and clients never see it do anything.** It just watches. You DM it to get insights.
 
@@ -19,7 +19,7 @@ A silent Slack bot that sits in every channel, tracks all messages, threads, and
 │ (every channel)      │──┘              │  • Blocked: waiting on copy    │
 └──────────────────────┘                 └─────────────────────────────────┘
  Bot NEVER talks here.                    Only YOU see this.
- Totally invisible.                       Powered by Claude AI.
+ Totally invisible.                       Powered by AI.
 ```
 
 ### It Tracks (automatically, 24/7):
@@ -30,11 +30,17 @@ A silent Slack bot that sits in every channel, tracks all messages, threads, and
 - Tasks — auto-detected from messages like "TODO:", "@person please do X", "need to...", "blocked by..."
 - Activity per person — message counts, engagement, which channels they're in
 
+### Intelligence Features:
+- **Morning Queue** — every weekday at 7am, DMs you a prioritized list of channels that need attention
+- **Mood Detection** — detects frustrated, happy, or neutral clients based on their messages
+- **Draft Messages** — suggests what to say, in your preferred tone (casual, professional, or friendly)
+- **Priority Scoring** — ranks channels by urgency so you know what to tackle first
+- **Cancellation Detection** — flags channels where a client mentions cancelling
+
 ### It Does NOT:
 - Never posts in any channel — invisible to everyone
 - Never stores DMs between people — only channel messages
 - Never shares data outside authorized users
-- Costs $0 for tracking. Only costs ~$0.01-0.03 per question you ask it (Claude AI)
 
 ---
 
@@ -44,13 +50,14 @@ Open a DM with the bot in Slack and just type naturally:
 
 | You type | What it does |
 |---|---|
-| "what's going on?" | Global summary of all projects |
-| "tell me about project alpha" | Members, tasks, activity for that channel |
+| "what's going on?" | Prioritized queue of everything that needs attention |
+| "tell me about project alpha" | Members, tasks, activity, mood for that channel |
+| "how is the client feeling in #design?" | Mood analysis with draft response suggestion |
 | "what tasks are open?" | All open tasks across everything |
 | "what's Jake working on?" | Jake's tasks, channels, message count |
 | "anything blocked?" | All blocked/stalled tasks |
 | "search for landing page" | Searches all messages everywhere |
-| "who's most active in #marketing?" | Activity breakdown |
+| "morning queue" | Same as the 7am auto-scan, on demand |
 | "reset" | Clears conversation memory |
 
 It remembers context — you can ask follow-up questions.
@@ -59,13 +66,15 @@ It remembers context — you can ask follow-up questions.
 
 # SETUP GUIDE
 
-**Read this carefully. Follow every step in order. Do not skip anything.**
+**This guide walks you through everything, step by step. If you can follow a recipe, you can do this.**
 
 You need 4 things:
-1. A Slack App (you create it in Slack's website)
-2. An Anthropic API key (for the AI)
-3. This code (from GitHub)
-4. A Railway account (to host it 24/7)
+1. A Slack App (you create it in Slack's website — ~10 minutes)
+2. An AI API key (the brain — ~2 minutes)
+3. This code (from GitHub — ~1 minute)
+4. A Railway account (to host it 24/7 — ~5 minutes)
+
+**Total setup time: about 20-30 minutes.**
 
 ---
 
@@ -92,6 +101,8 @@ You're now on the app's settings page. **Don't close this tab** — you'll be he
 5. Click **"Generate"**
 6. **COPY THE TOKEN** that starts with `xapp-...` — paste it somewhere safe (Notepad, Notes app, whatever)
 7. Click **"Done"**
+
+> **What you should have now:** One token starting with `xapp-...` saved somewhere safe.
 
 ---
 
@@ -223,16 +234,40 @@ The Request URL doesn't matter because Socket Mode bypasses it. But Slack requir
 6. Scroll to **"App Credentials"**
 7. **COPY** the **"Signing Secret"** — save it
 
+> **What you should have now:** Three things saved:
+> - `xapp-...` token (from Step 2)
+> - `xoxb-...` token (from this step)
+> - Signing Secret (from this step)
+
 ---
 
-## STEP 8: Get an Anthropic API Key
+## STEP 8: Get an AI API Key
+
+The bot uses AI to understand your questions and analyze your channels. **You need to pick a provider.**
+
+### Option A: OpenRouter (RECOMMENDED)
+
+OpenRouter lets you use AI models from many companies (Claude, GPT-4, Gemini, Llama, etc.) with one account. **This is the easiest option.**
+
+1. Go to **https://openrouter.ai/**
+2. Click **"Sign Up"** (Google login is fastest)
+3. Go to **https://openrouter.ai/credits** and add **$5** in credits (this will last a long time)
+4. Go to **https://openrouter.ai/keys**
+5. Click **"Create Key"**
+6. **COPY** the key — starts with `sk-or-...` — save it
+
+> **What you should have now:** An OpenRouter API key starting with `sk-or-...`
+
+### Option B: Anthropic (Claude only)
+
+If you specifically want to use Claude directly (slightly cheaper, but locked to one provider):
 
 1. Go to **https://console.anthropic.com/**
 2. Create an account (or log in)
 3. Go to **"API Keys"** in the sidebar
 4. Click **"Create Key"**
 5. **COPY** the key — starts with `sk-ant-...` — save it
-6. Go to **"Billing"** and add at least **$10** in credits (this will last months)
+6. Go to **"Billing"** and add at least **$5** in credits
 
 ---
 
@@ -253,62 +288,89 @@ If multiple people need access, get each person's member ID.
 
 ## STEP 10: Deploy on Railway
 
-### 10a. Get the Code
+### 10a. Get the Code on GitHub
 
-```bash
-git clone https://github.com/YOUR_USERNAME/slack_bot.git
-cd slack_bot
-```
-
-(Replace `YOUR_USERNAME` with the GitHub username or org where this repo lives.)
+1. If you haven't already, create a **GitHub** account at **https://github.com/**
+2. Go to this repo's page on GitHub
+3. Click the green **"Fork"** button (this copies it to your account)
 
 ### 10b. Create a Railway Project
 
 1. Go to **https://railway.app/** and sign up (GitHub login is easiest)
 2. Click **"New Project"**
 3. Click **"Deploy from GitHub Repo"**
-4. Select the `slack_bot` repo
+4. Select the `slack_bot` repo (the fork you just made)
 5. Railway will detect it's a Node.js app and start building
 
 ### 10c. Add Environment Variables
 
+This is where all your saved tokens and settings go.
+
 1. In Railway, click on your service (the box that appeared)
 2. Go to the **"Variables"** tab
-3. Click **"Add Variable"** for each:
+3. Click **"Add Variable"** for each one below
+
+**Required variables** (the bot won't start without these):
 
 | Variable | Value |
 |---|---|
 | `SLACK_BOT_TOKEN` | `xoxb-...` (from Step 7) |
 | `SLACK_SIGNING_SECRET` | The signing secret (from Step 7) |
 | `SLACK_APP_TOKEN` | `xapp-...` (from Step 2) |
-| `ANTHROPIC_API_KEY` | `sk-ant-...` (from Step 8) |
-| `CLAUDE_MODEL` | `claude-sonnet-4-5-20250929` |
 | `AUTHORIZED_USERS` | `U01ABC123XY` (from Step 9, comma-separated if multiple) |
 
-**Optional variables** (add these if you want to customize behavior):
+**AI Provider** (pick ONE set based on which provider you chose in Step 8):
+
+If you chose **OpenRouter** (Option A):
+
+| Variable | Value |
+|---|---|
+| `AI_PROVIDER` | `openrouter` |
+| `OPENROUTER_API_KEY` | `sk-or-...` (from Step 8) |
+
+If you chose **Anthropic** (Option B):
+
+| Variable | Value |
+|---|---|
+| `AI_PROVIDER` | `anthropic` |
+| `ANTHROPIC_API_KEY` | `sk-ant-...` (from Step 8) |
+
+**Personalization** (optional but recommended — makes the bot yours):
+
+| Variable | Example | What it does |
+|---|---|---|
+| `BOT_OWNER_NAME` | `Sarah` | The AI calls itself "Sarah's assistant" |
+| `OWNER_ROLE` | `a marketing agency owner` | Helps the AI understand your perspective |
+| `DRAFT_STYLE` | `professional` | Tone of suggested messages: `casual`, `professional`, or `friendly` |
+| `BOT_PERSONALITY` | `Be brief. Use bullet points.` | Extra instructions for how the AI talks to you |
+
+**Example: Full setup for someone named Sarah who runs a design agency:**
+
+| Variable | Value |
+|---|---|
+| `SLACK_BOT_TOKEN` | `xoxb-123-456-abc` |
+| `SLACK_SIGNING_SECRET` | `abc123def456` |
+| `SLACK_APP_TOKEN` | `xapp-1-A0B-789-xyz` |
+| `AUTHORIZED_USERS` | `U01SARAH` |
+| `AI_PROVIDER` | `openrouter` |
+| `OPENROUTER_API_KEY` | `sk-or-v1-abc123` |
+| `BOT_OWNER_NAME` | `Sarah` |
+| `OWNER_ROLE` | `a design agency owner` |
+| `DRAFT_STYLE` | `professional` |
+
+**Other optional variables:**
 
 | Variable | Default | What it does |
 |---|---|---|
-| `BOT_OWNER_NAME` | `the user` | **Your first name.** The AI will say "I'm [name]'s assistant" and personalize responses. |
-| `OWNER_ROLE` | `a project manager / business owner` | Your role. Helps the AI understand your perspective. Examples: `a marketing agency owner`, `the head of client services` |
-| `BOT_PERSONALITY` | _(none)_ | Extra instructions for how the AI talks to you. Examples: `Be casual and use humor`, `Always suggest next steps` |
-| `TEAM_USER_IDS` | (falls back to AUTHORIZED_USERS) | Comma-separated Slack user IDs of your team. Used to tell apart "team" vs "client" messages. |
-| `EXCLUDE_CHANNELS` | `general,random` | Channels to skip during scans. |
-| `DRAFTS_ENABLED` | `true` | Set to `false` to disable draft message suggestions. You still get the priority queue and analysis — just no suggested messages. |
-| `DRAFT_STYLE` | `casual` | Tone of draft messages. Options: `casual`, `professional`, `friendly` (see below). |
-
-**Example personality setup** — if your name is Sarah and you run a design agency:
-
-```
-BOT_OWNER_NAME=Sarah
-OWNER_ROLE=a design agency owner
-BOT_PERSONALITY=Keep it brief. Use bullet points. Flag anything design-related as high priority.
-DRAFT_STYLE=professional
-```
+| `AI_MODEL` | _(auto, based on provider)_ | Override the AI model. Browse options at https://openrouter.ai/models |
+| `TEAM_USER_IDS` | (same as AUTHORIZED_USERS) | Comma-separated Slack user IDs of your team members (helps the bot tell "team" from "client") |
+| `EXCLUDE_CHANNELS` | `general,random` | Channel names to skip during scans |
+| `DRAFTS_ENABLED` | `true` | Set to `false` to turn off draft message suggestions |
+| `BOT_PERSONALITY` | _(none)_ | Freeform instructions for how the AI talks to you |
 
 ### 10d. Add a Persistent Volume (CRITICAL)
 
-This is where the bot stores its database. Without this, data resets on every deploy.
+This is where the bot stores its database. Without this, all data resets every time you deploy.
 
 1. In Railway, click on your service
 2. Go to the **"Settings"** tab (or right-click the service → "Add Volume")
@@ -326,6 +388,7 @@ Railway auto-deploys when you push to GitHub. After adding variables and the vol
 3. Watch the logs — you should see:
 
 ```
+[INFO] [ai-provider] Active provider: openrouter | model: anthropic/claude-sonnet-4-5
 [INFO] [startup] Slack Project Tracker Bot is running!
 [INFO] [startup] Syncing users...
 [INFO] [startup] Synced 47 users
@@ -336,7 +399,7 @@ Railway auto-deploys when you push to GitHub. After adding variables and the vol
 ```
 
 If you see errors, check:
-- All 6 environment variables are set correctly
+- All required environment variables are set correctly
 - The volume is mounted at `/app/data`
 - The Slack app has all 12 scopes and 9 events
 
@@ -366,36 +429,17 @@ The bot auto-joins all public channels on its own. For private channels:
 
 ---
 
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| Bot doesn't respond to DMs | Go to Slack App Settings → **App Home** → make sure Messages Tab is ON and the checkbox is checked |
-| `missing_scope` error in logs | You missed a scope in Step 3 — add it in OAuth & Permissions and **reinstall the app** (Step 7) |
-| `not_authed` or `invalid_auth` | Wrong token — double-check SLACK_BOT_TOKEN and SLACK_APP_TOKEN |
-| `invalid x-]api-key` from Claude | Wrong ANTHROPIC_API_KEY — check it at console.anthropic.com |
-| Bot crashes and restarts | Check Railway logs — the error message will tell you what's wrong |
-| Data gone after redeploy | Volume not mounted — redo Step 10d |
-| Bot doesn't join channels | Missing `channels:join` scope — add it and reinstall |
-| No scheduled reports | `AUTHORIZED_USERS` not set — add your Slack user ID |
-
----
-
 ## Draft Message Styles
 
-The bot generates suggested draft messages when channels need a response. You can customize the tone or turn it off entirely.
-
-### Choosing a Style
-
-Set `DRAFT_STYLE` in your environment variables:
+The bot can suggest draft messages when channels need a response. Set `DRAFT_STYLE` to change the tone:
 
 | Style | Greeting | Sign-off | Best for |
 |---|---|---|---|
-| `casual` (default) | "Hey John" | "Happy Monday!" / "Have an awesome weekend!" | Friendly, personal relationships with clients |
-| `professional` | "Hi John" | "Best regards." / "Thank you." | Corporate clients, formal communication |
-| `friendly` | "Hi John!" | "Have a great day!" / "Talk soon!" | Warm but less personal than casual |
+| `casual` (default) | "Hey John" | "Happy Monday!" | Friendly, personal client relationships |
+| `professional` | "Hi John" | "Best regards." | Corporate clients, formal communication |
+| `friendly` | "Hi John!" | "Have a great day!" | Warm but less personal than casual |
 
-**Example — same situation, three styles:**
+**Same situation, three styles:**
 
 > **casual:** Hey John, I hear you on this and I totally understand the frustration with your website. I'm personally making sure this gets resolved. Happy Wednesday!
 >
@@ -403,15 +447,7 @@ Set `DRAFT_STYLE` in your environment variables:
 >
 > **friendly:** Hi John, I completely understand your frustration with your website. I'm making this a priority and will personally follow up with you today. Have a great day!
 
-### Turning Drafts Off
-
-If you don't want suggested messages at all (just the priority queue and channel analysis), set:
-
-```
-DRAFTS_ENABLED=false
-```
-
-You still get everything else — priority scores, mood detection, unanswered message counts, topic extraction. The bot just won't suggest what to say.
+Set `DRAFTS_ENABLED=false` to turn off draft suggestions entirely. You still get the priority queue and analysis — just no suggested messages.
 
 ---
 
@@ -429,14 +465,49 @@ You can also trigger this manually anytime with the `/scan` command.
 
 ---
 
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Bot doesn't respond to DMs | Go to Slack App Settings → **App Home** → make sure Messages Tab is ON and the checkbox is checked |
+| `missing_scope` error in logs | You missed a scope in Step 3 — add it in OAuth & Permissions and **reinstall the app** (Step 7) |
+| `not_authed` or `invalid_auth` | Wrong Slack token — double-check SLACK_BOT_TOKEN and SLACK_APP_TOKEN |
+| `Invalid API key` | Wrong AI key — check your AI_PROVIDER matches the key you set (OPENROUTER_API_KEY or ANTHROPIC_API_KEY) |
+| `Unknown AI_PROVIDER` | AI_PROVIDER must be exactly `openrouter` or `anthropic` (lowercase) |
+| Bot crashes and restarts | Check Railway logs — the error message will tell you what's wrong |
+| Data gone after redeploy | Volume not mounted — redo Step 10d |
+| Bot doesn't join channels | Missing `channels:join` scope — add it and reinstall |
+| No morning scan DMs | `AUTHORIZED_USERS` not set — add your Slack user ID |
+| AI responses are slow | Normal — AI calls take 3-10 seconds. If consistently >30s, try a faster model via AI_MODEL |
+
+---
+
 ## Ongoing Cost
 
 | Item | Cost |
 |---|---|
 | Railway hosting | ~$5/month |
-| Claude AI (per question) | ~$0.01-0.03 |
+| AI (per question) | ~$0.01-0.05 depending on model |
 | Slack | Free (bot uses no paid features) |
 | **Total for normal use** | **~$10-15/month** |
+
+---
+
+## AI Models
+
+If you're using OpenRouter, you can change which AI model powers the bot by setting `AI_MODEL`. Some popular options:
+
+| Model | AI_MODEL value | Speed | Quality | Cost |
+|---|---|---|---|---|
+| Claude Sonnet 4.5 (default) | `anthropic/claude-sonnet-4-5` | Fast | Excellent | $$ |
+| Claude Opus 4.5 | `anthropic/claude-opus-4-5` | Slower | Best | $$$$ |
+| GPT-4o | `openai/gpt-4o` | Fast | Excellent | $$ |
+| Gemini 2.5 Pro | `google/gemini-2.5-pro` | Fast | Great | $ |
+| Llama 4 Maverick | `meta-llama/llama-4-maverick` | Fast | Good | $ |
+
+Browse all available models at **https://openrouter.ai/models**
+
+Leave `AI_MODEL` blank to use the default (Claude Sonnet 4.5 — recommended).
 
 ---
 
@@ -447,6 +518,6 @@ You can also trigger this manually anytime with the `/scan` command.
 | Framework | Slack Bolt.js (Slack's official Node.js SDK) |
 | Connection | Socket Mode (WebSocket — no public URL needed) |
 | Database | SQLite (local file, zero config, stored on Railway volume) |
-| AI | Claude Sonnet 4.5 via Anthropic API |
+| AI | Configurable — Claude, GPT-4, Gemini, Llama, or any OpenRouter model |
 | Hosting | Railway (24/7 uptime, auto-deploy from GitHub) |
 | Logging | File + console (viewable in Railway dashboard) |

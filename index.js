@@ -7,11 +7,26 @@ const { joinAndBackfillAll, syncUsers } = require('./src/backfill');
 const { log } = require('./src/utils');
 
 // --- Validate required environment variables ---
-const REQUIRED_ENV = ['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET', 'SLACK_APP_TOKEN', 'ANTHROPIC_API_KEY'];
+const REQUIRED_ENV = ['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET', 'SLACK_APP_TOKEN'];
 const missing = REQUIRED_ENV.filter(key => !process.env[key]);
 if (missing.length > 0) {
   console.error(`\n  Missing required environment variables:\n    ${missing.join('\n    ')}\n`);
   console.error('  Copy .env.example to .env and fill in your values.\n');
+  process.exit(1);
+}
+
+// --- Validate AI provider configuration ---
+const aiProvider = (process.env.AI_PROVIDER || 'anthropic').toLowerCase();
+if (aiProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
+  console.error('\n  AI_PROVIDER is set to "openrouter" but OPENROUTER_API_KEY is missing.');
+  console.error('  Get a key at https://openrouter.ai/keys\n');
+  process.exit(1);
+} else if (aiProvider === 'anthropic' && !process.env.ANTHROPIC_API_KEY) {
+  console.error('\n  AI_PROVIDER is set to "anthropic" but ANTHROPIC_API_KEY is missing.');
+  console.error('  Get a key at https://console.anthropic.com/\n');
+  process.exit(1);
+} else if (aiProvider !== 'openrouter' && aiProvider !== 'anthropic') {
+  console.error(`\n  Unknown AI_PROVIDER "${aiProvider}". Must be "openrouter" or "anthropic".\n`);
   process.exit(1);
 }
 
