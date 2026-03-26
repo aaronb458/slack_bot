@@ -4,6 +4,8 @@ const { registerEvents } = require('./src/events');
 const { registerCommands } = require('./src/commands');
 const { startScheduler } = require('./src/scheduler');
 const { joinAndBackfillAll, syncUsers } = require('./src/backfill');
+const { runMorningScan } = require('./src/morning-scan');
+const db = require('./src/database');
 const { log } = require('./src/utils');
 
 // --- Validate required environment variables ---
@@ -99,8 +101,42 @@ process.on('SIGTERM', () => {
     // Auto-join public channels and backfill history
     await joinAndBackfillAll(app.client);
 
+    // --- Check TEAM_USER_IDS against actual workspace size ---
+    const teamIdSet = new Set((process.env.TEAM_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean));
+    const authIdSet = new Set((process.env.AUTHORIZED_USERS || '').split(',').map(s => s.trim()).filter(Boolean));
+    const effectiveTeam = teamIdSet.size > 0 ? teamIdSet : authIdSet;
+    const totalUsers = db.getDb().prepare('SELECT COUNT(*) as count FROM users WHERE is_bot = 0').get()?.count || 0;
+
+    if (effectiveTeam.size > 0 && totalUsers > effectiveTeam.size + 5) {
+      log.warn('startup', '===========================================');
+      log.warn('startup', `  ⚠️  TEAM_USER_IDS may be incomplete!`);
+      log.warn('startup', `  Your workspace has ${totalUsers} humans but only ${effectiveTeam.size} are marked as "team."`);
+      log.warn('startup', `  Everyone else is treated as a CLIENT.`);
+      log.warn('startup', `  If your team has more than ${effectiveTeam.size} people,`);
+      log.warn('startup', `  add their IDs to TEAM_USER_IDS or the bot will`);
+      log.warn('startup', `  flag your own team's messages as client issues.`);
+      log.warn('startup', `  Run /team-ids in Slack to see all user IDs.`);
+      log.warn('startup', '===========================================');
+    }
+
     // Start scheduled reports
     startScheduler(app);
+
+    // --- Run initial scan so the bot has data immediately ---
+    const hasExistingScans = db.getDb().prepare('SELECT COUNT(*) as count FROM channel_analyses').get()?.count || 0;
+    if (hasExistingScans === 0) {
+      log.info('startup', 'No previous scans found — running initial scan...');
+      try {
+        const result = await runMorningScan(app);
+        if (result.sent) {
+          log.info('startup', `Initial scan complete — ${result.needsAttention} channels need attention (DM sent)`);
+        } else {
+          log.info('startup', 'Initial scan complete (no DM sent — check AUTHORIZED_USERS)');
+        }
+      } catch (e) {
+        log.warn('startup', `Initial scan failed (non-critical): ${e.message}`);
+      }
+    }
 
     log.info('startup', 'Bot is fully operational.');
   } catch (error) {

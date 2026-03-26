@@ -372,17 +372,34 @@ If you chose **Anthropic** (Option B):
 | `OWNER_ROLE` | `a design agency owner` |
 | `DRAFT_STYLE` | `professional` |
 
+### 10d. Set Up Team Member IDs (IMPORTANT — do this after first boot)
+
+The bot needs to know who is on **your team** vs who is a **client**. Without this, it thinks your own team members are clients and gives you wrong analysis.
+
+1. After the bot is running (finish steps 10e-10f first), go to any channel in Slack
+2. Type `/team-ids`
+3. You'll see a list of all users with their IDs like `U01ABCDEF — Sarah Jones`
+4. Copy the IDs of everyone on your **team** (not clients)
+5. Go back to Railway → Variables → Add:
+
+| Variable | Value |
+|---|---|
+| `TEAM_USER_IDS` | `U01ABCDEF,U02GHIJKL,U03MNOPQR` (your team's IDs, comma-separated) |
+
+6. Railway will auto-redeploy. The bot will now correctly distinguish team from client messages.
+
+> **If you skip this:** The bot will flag your own team's messages as "client needs response" and the morning scan will be full of false alerts. You can always come back and add this later — just don't forget.
+
 **Other optional variables:**
 
 | Variable | Default | What it does |
 |---|---|---|
 | `AI_MODEL` | _(auto, based on provider)_ | Override the AI model. Browse options at https://openrouter.ai/models |
-| `TEAM_USER_IDS` | (same as AUTHORIZED_USERS) | Comma-separated Slack user IDs of your team members (helps the bot tell "team" from "client") |
 | `EXCLUDE_CHANNELS` | `general,random` | Channel names to skip during scans |
 | `DRAFTS_ENABLED` | `true` | Set to `false` to turn off draft message suggestions |
 | `BOT_PERSONALITY` | _(none)_ | Freeform instructions for how the AI talks to you |
 
-### 10d. Add a Persistent Volume (CRITICAL)
+### 10e. Add a Persistent Volume (CRITICAL)
 
 This is where the bot stores its database. Without this, all data resets every time you deploy.
 
@@ -393,7 +410,7 @@ This is where the bot stores its database. Without this, all data resets every t
 5. Give it a name like `bot-data`
 6. Save
 
-### 10e. Deploy
+### 10f. Deploy
 
 Railway auto-deploys when you push to GitHub. After adding variables and the volume:
 
