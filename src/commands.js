@@ -3,6 +3,8 @@ const { formatTaskList, formatProjectReport, formatGlobalSummary } = require('./
 const { getUptime } = require('./utils');
 const { analyzeChannel } = require('./intelligence');
 const { runMorningScan } = require('./morning-scan');
+const { getProvider, resolveModel } = require('./ai-provider');
+const { isDraftingEnabled, getDraftStyle } = require('./drafter');
 
 /**
  * Register all slash commands with the Slack app.
@@ -12,22 +14,80 @@ function registerCommands(app) {
   // /ping — health check
   app.command('/ping', async ({ command, ack, respond }) => {
     await ack();
-    const channels = db.getAllChannels();
-    const msgCount = db.getDb().prepare('SELECT COUNT(*) as count FROM messages').get();
-    const taskCount = db.getDb().prepare('SELECT COUNT(*) as count FROM tasks').get();
-    const userCount = db.getDb().prepare('SELECT COUNT(*) as count FROM users').get();
+    const lines = [':stethoscope: *Bot Health Check*', ''];
 
-    await respond({
-      response_type: 'ephemeral',
-      text: [
-        ':white_check_mark: *Bot is running*',
-        `*Uptime:* ${getUptime()}`,
-        `*Channels tracked:* ${channels.length}`,
-        `*Messages stored:* ${msgCount?.count || 0}`,
-        `*Tasks tracked:* ${taskCount?.count || 0}`,
-        `*Users known:* ${userCount?.count || 0}`,
-      ].join('\n'),
-    });
+    // --- Database ---
+    try {
+      const channels = db.getAllChannels();
+      const msgCount = db.getDb().prepare('SELECT COUNT(*) as count FROM messages').get();
+      lines.push(`:white_check_mark: *Database:* ${channels.length} channels, ${(msgCount?.count || 0).toLocaleString()} messages`);
+    } catch (e) {
+      lines.push(`:x: *Database:* Failed — ${e.message}`);
+    }
+
+    // --- AI Provider ---
+    const providerName = (process.env.AI_PROVIDER || 'anthropic').toLowerCase();
+    const model = resolveModel();
+    lines.push(`:white_check_mark: *AI Provider:* ${providerName} (${model})`);
+
+    // --- AI Connection (tiny real API call) ---
+    try {
+      const provider = getProvider();
+      await provider.createMessage({
+        model,
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      lines.push(':white_check_mark: *AI Connection:* Working');
+    } catch (e) {
+      if (e.status === 401) {
+        lines.push(`:x: *AI Connection:* Failed — API key is invalid. Check your ${providerName === 'openrouter' ? 'OPENROUTER_API_KEY' : 'ANTHROPIC_API_KEY'} in Railway's Variables tab.`);
+      } else if (e.status === 402 || e.message?.toLowerCase().includes('payment') || e.message?.toLowerCase().includes('credit') || e.message?.toLowerCase().includes('insufficient')) {
+        const creditsUrl = providerName === 'openrouter' ? ' — Add credits at https://openrouter.ai/credits' : '';
+        lines.push(`:x: *AI Connection:* Failed — AI credits may be exhausted${creditsUrl}`);
+      } else {
+        lines.push(`:x: *AI Connection:* Failed — "${e.message}"`);
+      }
+    }
+
+    // --- Authorized Users ---
+    const AUTHORIZED_USERS = (process.env.AUTHORIZED_USERS || '').split(',').map(s => s.trim()).filter(Boolean);
+    lines.push(`:white_check_mark: *Authorized Users:* ${AUTHORIZED_USERS.length} configured`);
+
+    // --- Team User IDs ---
+    const teamIds = (process.env.TEAM_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (teamIds.length > 0) {
+      lines.push(`:white_check_mark: *Team IDs:* ${teamIds.length} configured`);
+    } else {
+      lines.push(':warning: *Team IDs:* Not set (using AUTHORIZED_USERS as fallback)');
+    }
+
+    // --- Drafts ---
+    const draftsEnabled = isDraftingEnabled();
+    const draftStyle = getDraftStyle();
+    lines.push(`${draftsEnabled ? ':white_check_mark:' : ':no_entry_sign:'} *Drafts:* ${draftsEnabled ? `Enabled (${draftStyle} style)` : 'Disabled'}`);
+
+    // --- Last Scan ---
+    try {
+      const lastScan = db.getDb().prepare(
+        'SELECT analyzed_at FROM channel_analyses ORDER BY analyzed_at DESC LIMIT 1'
+      ).get();
+      if (lastScan?.analyzed_at) {
+        const scanDate = new Date(lastScan.analyzed_at * 1000).toLocaleString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric',
+          hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short',
+        });
+        lines.push(`:white_check_mark: *Last Scan:* ${scanDate}`);
+      } else {
+        lines.push(':warning: *Last Scan:* Never run — try `/scan`');
+      }
+    } catch (e) {
+      lines.push(':warning: *Last Scan:* Could not check — table may not exist yet. Run `/scan` first.');
+    }
+
+    lines.push('', `*Uptime:* ${getUptime()}`);
+
+    await respond({ response_type: 'ephemeral', text: lines.join('\n') });
   });
 
   // /tasks [channel] [status] — list tasks
@@ -271,7 +331,7 @@ function registerCommands(app) {
         await respond({ response_type: 'ephemeral', text: ':warning: Scan completed but no results were sent. Check AUTHORIZED_USERS.' });
       }
     } catch (e) {
-      await respond({ response_type: 'ephemeral', text: `:x: Scan failed: ${e.message}` });
+      await respond({ response_type: 'ephemeral', text: `:x: Scan failed: ${e.message}\n\nIf this keeps happening, try \`/ping\` to check bot health.` });
     }
   });
 
@@ -311,7 +371,7 @@ function registerCommands(app) {
 
       await respond({ response_type: 'ephemeral', text: lines.join('\n') });
     } catch (e) {
-      await respond({ response_type: 'ephemeral', text: `:x: Analysis failed: ${e.message}` });
+      await respond({ response_type: 'ephemeral', text: `:x: Analysis failed: ${e.message}\n\nThis channel may not have enough messages yet. The bot needs at least 5 messages to analyze a channel.` });
     }
   });
 

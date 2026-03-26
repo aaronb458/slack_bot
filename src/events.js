@@ -1,7 +1,7 @@
 const db = require('./database');
 const { detectTasks, handleReaction } = require('./tasks');
 const { backfillChannel } = require('./backfill');
-const { chat, clearHistory } = require('./ai');
+const { chat, clearHistory, hasHistory } = require('./ai');
 const { log, retrySlack } = require('./utils');
 
 // Authorized user IDs that can talk to the bot via DM.
@@ -68,6 +68,18 @@ function registerEvents(app) {
         }
 
         log.info('dm', `${message.user}: ${message.text?.slice(0, 100)}`);
+
+        // First-time user welcome
+        if (!hasHistory(message.user)) {
+          await retrySlack(
+            () => client.chat.postMessage({
+              channel: channelId,
+              text: `:wave: *Welcome!* I'm your Slack intelligence assistant.\n\nI've been quietly tracking all your channels. Ask me anything:\n• "what's going on?" — prioritized overview\n• "how is #channel-name doing?" — channel health\n• "morning queue" — your daily priority list\n• "reset" — clear conversation\n• Need help? Try \`/ping\` to check bot health.`,
+              mrkdwn: true,
+            }),
+            { label: 'dm:welcome', maxRetries: 1 }
+          );
+        }
 
         // Send message to Claude AI with tool access
         const reply = await chat(message.user, message.text);

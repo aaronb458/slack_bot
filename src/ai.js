@@ -589,26 +589,30 @@ Key behaviors:
 
     return reply || "I couldn't generate a response. Try asking in a different way.";
   } catch (error) {
-    // Handle specific error types
+    // Handle specific error types with human-friendly messages
     if (error.name === 'AbortError' || error.message?.includes('abort')) {
       log.error('ai', `Timeout for user ${userId}`);
-      return "That took too long — the AI timed out. Try a simpler question, or type `reset` and try again.";
+      return "The AI is taking too long to respond. This usually means the service is busy. Wait a minute and try again. If this keeps happening, try typing `reset` first.";
     }
     if (error.status === 429) {
       log.error('ai', `Rate limited for user ${userId}`);
-      return "I'm being rate-limited by the AI service. Wait a minute and try again.";
+      return "The AI service is temporarily limiting requests. Wait 1-2 minutes and try again. This is normal during busy periods.";
     }
     if (error.status === 529 || error.status === 503) {
       log.error('ai', `AI service overloaded (${error.status}) for user ${userId}`);
-      return "The AI service is temporarily overloaded. Try again in a moment.";
+      return "The AI service is temporarily overloaded — this happens sometimes. Try again in a few minutes.";
     }
     if (error.status === 401) {
       log.error('ai', 'Invalid API key');
-      return "Bot configuration error: invalid API key. Check your AI_PROVIDER and API key settings.";
+      return "There's a problem with the AI API key. The bot admin needs to check that the API key is correct and has credits. If you're the admin, check your AI_PROVIDER and API key in Railway's Variables tab.";
+    }
+    if (error.status === 402 || error.message?.toLowerCase().includes('payment') || error.message?.toLowerCase().includes('credit') || error.message?.toLowerCase().includes('insufficient')) {
+      log.error('ai', `Payment/credits issue for user ${userId}: ${error.message}`);
+      return "The AI service credits may have run out. The bot admin needs to add more credits. If you're the admin, go to your AI provider's billing page and add credits.";
     }
 
     log.error('ai', `Unexpected error for user ${userId}: ${error.message}`);
-    return `Something went wrong: ${error.message}\nTry typing \`reset\` to clear the conversation and try again.`;
+    return `Something unexpected happened: ${error.message}\n\nTry typing \`reset\` to clear the conversation, then try again. If this keeps happening, the bot admin should check the Railway logs.`;
   }
 }
 
@@ -619,4 +623,11 @@ function clearHistory(userId) {
   conversationHistory.delete(userId);
 }
 
-module.exports = { chat, clearHistory };
+/**
+ * Check if a user has existing conversation history.
+ */
+function hasHistory(userId) {
+  return conversationHistory.has(userId) && conversationHistory.get(userId).length > 0;
+}
+
+module.exports = { chat, clearHistory, hasHistory };
